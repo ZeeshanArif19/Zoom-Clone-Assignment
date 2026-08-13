@@ -27,3 +27,11 @@ def get_upcoming_meetings(db: Session):
 def get_recent_meetings(db: Session):
     # Return all instant (non-scheduled) meetings, newest first
     return db.query(Meeting).filter(Meeting.is_scheduled == False).order_by(Meeting.created_at.desc()).all()
+
+def delete_meeting(db: Session, meeting_code: str):
+    meeting = db.query(Meeting).filter(Meeting.meeting_code == meeting_code).first()
+    if meeting:
+        db.delete(meeting)
+        db.commit()
+        return True
+    return False

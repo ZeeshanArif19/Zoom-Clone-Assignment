@@ -31,3 +31,10 @@ def get_meeting(meeting_code: str, db: Session = Depends(get_db)):
     if not db_meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
     return db_meeting
+
+@router.delete("/{meeting_code}")
+def delete_meeting(meeting_code: str, db: Session = Depends(get_db)):
+    success = meeting_service.delete_meeting(db=db, meeting_code=meeting_code)
+    if not success:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    return {"message": "Meeting deleted"}
