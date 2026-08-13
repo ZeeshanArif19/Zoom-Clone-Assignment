@@ -7,10 +7,11 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<{ [key: string]: MediaStream }>({});
+  const [roomParticipants, setRoomParticipants] = useState<{ [key: string]: string }>({});
   
   const peersRef = useRef<{ [key: string]: RTCPeerConnection }>({});
   
-  // Initialize local media
+  // Initialize local media with fallback for multi-tab testing
   const initLocalStream = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -18,12 +19,23 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
       localStreamRef.current = stream;
       return stream;
     } catch (e) {
-      console.error("Failed to get local stream", e);
-      return null;
+      console.warn("Failed to get video+audio, trying audio only", e);
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+        setLocalStream(audioStream);
+        localStreamRef.current = audioStream;
+        return audioStream;
+      } catch (err) {
+        console.warn("Media device unavailable, creating empty stream", err);
+        const emptyStream = new MediaStream();
+        setLocalStream(emptyStream);
+        localStreamRef.current = emptyStream;
+        return emptyStream;
+      }
     }
   };
 
-  const createPeerConnection = (targetPeerId: string, stream: MediaStream) => {
+  const createPeerConnection = (targetPeerId: string, stream: MediaStream | null) => {
     if (peersRef.current[targetPeerId]) {
       return peersRef.current[targetPeerId];
     }
@@ -67,8 +79,6 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
 
   const handleUserJoined = async (newPeerId: string) => {
     const activeStream = localStreamRef.current;
-    if (!activeStream) return;
-    
     const peer = createPeerConnection(newPeerId, activeStream);
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
@@ -90,19 +100,25 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
       const activeStream = localStreamRef.current;
 
       if (msg.type === 'room_users' && msg.existing_peers) {
+        const newParticipants: { [key: string]: string } = {};
         msg.existing_peers.forEach((p: any) => {
           if (p.peer_id !== peerId) {
+            newParticipants[p.peer_id] = p.display_name || 'Participant';
             handleUserJoined(p.peer_id);
           }
         });
+        setRoomParticipants(prev => ({ ...prev, ...newParticipants }));
       }
       
       if (msg.type === 'user_joined' && msg.peer_id !== peerId) {
+        setRoomParticipants(prev => ({
+          ...prev,
+          [msg.peer_id]: msg.display_name || 'Participant'
+        }));
         handleUserJoined(msg.peer_id);
       }
       
       if (msg.type === 'offer' && msg.target_id === peerId) {
-        if (!activeStream) return;
         const peer = createPeerConnection(msg.sender_id, activeStream);
         await peer.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         const answer = await peer.createAnswer();
@@ -131,6 +147,11 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
       }
       
       if (msg.type === 'user_left') {
+        setRoomParticipants(prev => {
+          const newState = { ...prev };
+          delete newState[msg.peer_id];
+          return newState;
+        });
         const peer = peersRef.current[msg.peer_id];
         if (peer) {
           peer.close();
@@ -168,6 +189,7 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
   return {
     localStream,
     remoteStreams,
+    roomParticipants,
     initLocalStream,
     toggleAudio,
     toggleVideo,

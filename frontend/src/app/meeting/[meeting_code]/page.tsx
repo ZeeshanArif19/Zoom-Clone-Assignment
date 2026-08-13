@@ -36,6 +36,8 @@ const VideoTile = ({
         stream.removeEventListener('addtrack', checkVideo);
         stream.removeEventListener('removetrack', checkVideo);
       };
+    } else {
+      setHasVideo(false);
     }
   }, [stream]);
 
@@ -134,7 +136,7 @@ export default function MeetingRoom() {
   const [peerId] = useState(`peer-${Math.random().toString(36).substr(2, 9)}`);
   const [meetingTitle, setMeetingTitle] = useState('Meeting');
 
-  const { localStream, remoteStreams, initLocalStream, toggleAudio, toggleVideo, isConnected } =
+  const { localStream, remoteStreams, roomParticipants, initLocalStream, toggleAudio, toggleVideo, isConnected } =
     useWebRTC(hasJoined ? meetingCode : '', peerId, displayName);
 
   const [isAudioMuted, setIsAudioMuted] = useState(false);
@@ -144,8 +146,8 @@ export default function MeetingRoom() {
   const [showControls, setShowControls] = useState(true);
   const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const remoteEntries = Object.entries(remoteStreams);
-  const totalParticipants = 1 + remoteEntries.length; // local + remote
+  const roomPeerEntries = Object.entries(roomParticipants);
+  const totalParticipants = 1 + roomPeerEntries.length;
   const isSolo = totalParticipants === 1;
 
   useEffect(() => {
@@ -225,10 +227,14 @@ export default function MeetingRoom() {
   }
 
   /* ─── Meeting room ─── */
-  const participants = [
+  const participantsList = [
     { id: peerId, name: `${displayName} (You)` },
-    ...remoteEntries.map(([id]) => ({ id, name: `Participant` })),
+    ...roomPeerEntries.map(([id, name]) => ({ id, name })),
   ];
+
+  const mainRemotePeerId = roomPeerEntries[0]?.[0];
+  const mainRemoteName = roomPeerEntries[0]?.[1] || 'Participant';
+  const mainRemoteStream = mainRemotePeerId ? remoteStreams[mainRemotePeerId] : null;
 
   return (
     <div className="zroom">
@@ -259,9 +265,9 @@ export default function MeetingRoom() {
             {/* Main/speaker tile */}
             <div className="zroom-main-tile">
               <VideoTile
-                stream={remoteEntries[0]?.[1] ?? localStream}
-                label={remoteEntries[0] ? 'Participant' : `${displayName} (You)`}
-                isLocal={!remoteEntries[0]}
+                stream={mainRemotePeerId ? mainRemoteStream : localStream}
+                label={mainRemotePeerId ? mainRemoteName : `${displayName} (You)`}
+                isLocal={!mainRemotePeerId}
               />
             </div>
             {/* Side strip */}
@@ -274,8 +280,8 @@ export default function MeetingRoom() {
                 compact
               />
               {/* Additional remotes */}
-              {remoteEntries.slice(1).map(([id, stream]) => (
-                <VideoTile key={id} stream={stream} label="Participant" compact />
+              {roomPeerEntries.slice(1).map(([id, name]) => (
+                <VideoTile key={id} stream={remoteStreams[id] || null} label={name} compact />
               ))}
             </div>
           </div>
@@ -284,7 +290,7 @@ export default function MeetingRoom() {
 
       {/* Side panels */}
       {showParticipants && (
-        <ParticipantsPanel participants={participants} onClose={() => setShowParticipants(false)} />
+        <ParticipantsPanel participants={participantsList} onClose={() => setShowParticipants(false)} />
       )}
       {showInvite && (
         <InvitePanel link={window.location.href} onClose={() => setShowInvite(false)} />
