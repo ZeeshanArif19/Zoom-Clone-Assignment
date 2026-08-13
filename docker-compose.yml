@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zoom-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/zoomclone.db:/app/zoomclone.db
