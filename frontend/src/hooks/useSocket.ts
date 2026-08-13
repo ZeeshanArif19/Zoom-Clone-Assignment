@@ -8,8 +8,19 @@ export const useSocket = (meetingCode: string, peerId: string, displayName: stri
   useEffect(() => {
     if (!meetingCode || !peerId) return;
 
-    // Use environment variable NEXT_PUBLIC_WS_URL or fallback to local ws://
-    const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/api';
+    // Smart detection for WebSocket URL
+    let wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL;
+    if (!wsBaseUrl) {
+      if (typeof window !== 'undefined') {
+        const isHttps = window.location.protocol === 'https:';
+        wsBaseUrl = isHttps 
+          ? 'wss://zoomasm.duckdns.org/api' 
+          : 'ws://localhost:8000/api';
+      } else {
+        wsBaseUrl = 'ws://localhost:8000/api';
+      }
+    }
+
     const wsUrl = `${wsBaseUrl}/ws/meeting/${meetingCode}?peer_id=${peerId}&display_name=${encodeURIComponent(displayName)}`;
     const ws = new WebSocket(wsUrl);
 

@@ -5,6 +5,7 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
   const { isConnected, sendMessage, messages, setMessages } = useSocket(meetingCode, peerId, displayName);
   
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<{ [key: string]: MediaStream }>({});
   
   const peersRef = useRef<{ [key: string]: RTCPeerConnection }>({});
@@ -14,6 +15,7 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       setLocalStream(stream);
+      localStreamRef.current = stream;
       return stream;
     } catch (e) {
       console.error("Failed to get local stream", e);
@@ -22,6 +24,11 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
   };
 
   const createPeerConnection = (targetPeerId: string, stream: MediaStream) => {
+    // Return existing connection if already creating one for target
+    if (peersRef.current[targetPeerId]) {
+      return peersRef.current[targetPeerId];
+    }
+
     const peer = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -30,16 +37,20 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
     });
 
     // Add local tracks
-    stream.getTracks().forEach(track => {
-      peer.addTrack(track, stream);
-    });
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        peer.addTrack(track, stream);
+      });
+    }
 
     // Handle remote tracks
     peer.ontrack = (event) => {
-      setRemoteStreams(prev => ({
-        ...prev,
-        [targetPeerId]: event.streams[0]
-      }));
+      if (event.streams && event.streams[0]) {
+        setRemoteStreams(prev => ({
+          ...prev,
+          [targetPeerId]: event.streams[0]
+        }));
+      }
     };
 
     // Handle ICE candidates
@@ -59,10 +70,11 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
   };
 
   const handleUserJoined = async (newPeerId: string) => {
-    if (!localStream) return;
+    const activeStream = localStreamRef.current;
+    if (!activeStream) return;
     
     // Create connection and send offer
-    const peer = createPeerConnection(newPeerId, localStream);
+    const peer = createPeerConnection(newPeerId, activeStream);
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
     
@@ -80,14 +92,15 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
     
     const processMessage = async () => {
       const msg = messages[messages.length - 1];
+      const activeStream = localStreamRef.current;
       
       if (msg.type === 'user_joined' && msg.peer_id !== peerId) {
         handleUserJoined(msg.peer_id);
       }
       
       if (msg.type === 'offer' && msg.target_id === peerId) {
-        if (!localStream) return;
-        const peer = createPeerConnection(msg.sender_id, localStream);
+        if (!activeStream) return;
+        const peer = createPeerConnection(msg.sender_id, activeStream);
         await peer.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
@@ -110,7 +123,7 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
       if (msg.type === 'ice_candidate' && msg.target_id === peerId) {
         const peer = peersRef.current[msg.sender_id];
         if (peer) {
-          await peer.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          await peer.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch(e => console.error("Error adding ice candidate", e));
         }
       }
       
@@ -132,16 +145,18 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
   }, [messages]);
 
   const toggleAudio = () => {
-    if (localStream) {
-      localStream.getAudioTracks().forEach(track => {
+    const activeStream = localStreamRef.current;
+    if (activeStream) {
+      activeStream.getAudioTracks().forEach(track => {
         track.enabled = !track.enabled;
       });
     }
   };
 
   const toggleVideo = () => {
-    if (localStream) {
-      localStream.getVideoTracks().forEach(track => {
+    const activeStream = localStreamRef.current;
+    if (activeStream) {
+      activeStream.getVideoTracks().forEach(track => {
         track.enabled = !track.enabled;
       });
     }
