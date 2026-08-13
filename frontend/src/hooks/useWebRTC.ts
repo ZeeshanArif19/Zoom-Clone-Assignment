@@ -24,7 +24,6 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
   };
 
   const createPeerConnection = (targetPeerId: string, stream: MediaStream) => {
-    // Return existing connection if already creating one for target
     if (peersRef.current[targetPeerId]) {
       return peersRef.current[targetPeerId];
     }
@@ -36,14 +35,12 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
       ]
     });
 
-    // Add local tracks
     if (stream) {
       stream.getTracks().forEach(track => {
         peer.addTrack(track, stream);
       });
     }
 
-    // Handle remote tracks
     peer.ontrack = (event) => {
       if (event.streams && event.streams[0]) {
         setRemoteStreams(prev => ({
@@ -53,7 +50,6 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
       }
     };
 
-    // Handle ICE candidates
     peer.onicecandidate = (event) => {
       if (event.candidate) {
         sendMessage({
@@ -73,7 +69,6 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
     const activeStream = localStreamRef.current;
     if (!activeStream) return;
     
-    // Create connection and send offer
     const peer = createPeerConnection(newPeerId, activeStream);
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
@@ -93,6 +88,14 @@ export const useWebRTC = (meetingCode: string, peerId: string, displayName: stri
     const processMessage = async () => {
       const msg = messages[messages.length - 1];
       const activeStream = localStreamRef.current;
+
+      if (msg.type === 'room_users' && msg.existing_peers) {
+        msg.existing_peers.forEach((p: any) => {
+          if (p.peer_id !== peerId) {
+            handleUserJoined(p.peer_id);
+          }
+        });
+      }
       
       if (msg.type === 'user_joined' && msg.peer_id !== peerId) {
         handleUserJoined(msg.peer_id);

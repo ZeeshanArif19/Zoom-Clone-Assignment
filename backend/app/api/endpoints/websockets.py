@@ -9,9 +9,22 @@ router = APIRouter()
 
 @router.websocket("/ws/meeting/{meeting_code}")
 async def websocket_endpoint(websocket: WebSocket, meeting_code: str, peer_id: str, display_name: str):
+    # Send existing peers in room to newly connecting client BEFORE adding them to active_rooms
+    existing_peers = [
+        {"peer_id": client["peer_id"], "display_name": client["display_name"]}
+        for client in room_manager.active_rooms.get(meeting_code, [])
+        if client["peer_id"] != peer_id
+    ]
+
     # Connect to room manager
     await room_manager.connect(websocket, meeting_code, peer_id, display_name)
     
+    # Send existing room users list to the connecting client
+    await websocket.send_json({
+        "type": "room_users",
+        "existing_peers": existing_peers
+    })
+
     # Register participant in DB
     db = SessionLocal()
     db_participant = None
@@ -28,7 +41,7 @@ async def websocket_endpoint(websocket: WebSocket, meeting_code: str, peer_id: s
         db.close()
 
     try:
-        # Notify others
+        # Notify existing members that a new user joined
         await room_manager.broadcast_to_room(
             meeting_code,
             {"type": "user_joined", "peer_id": peer_id, "display_name": display_name},
@@ -44,8 +57,6 @@ async def websocket_endpoint(websocket: WebSocket, meeting_code: str, peer_id: s
             if msg_type in ["offer", "answer", "ice_candidate"]:
                 if target_id:
                     await room_manager.send_to_peer(meeting_code, target_id, data)
-            
-            # Additional chat/status broadcasts can go here if needed
 
     except WebSocketDisconnect:
         room_manager.disconnect(websocket, meeting_code)
